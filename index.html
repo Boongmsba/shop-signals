@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f4ee">
+  <meta name="description" content="Turn a sales CSV into clear, practical signals for your small shop. A private, browser-based sales dashboard.">
+  <title>Shop Signals · Small shop. Clear signals.</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./src/app.mjs"></script>
+</head>
+<body>
+  <a class="skip-link" href="#overview">Skip to dashboard</a>
+  <aside class="sidebar">
+    <a class="brand" href="#overview" aria-label="Shop Signals home"><span class="brand-icon" aria-hidden="true">s<span>•</span></span><span>shop signals<span class="brand-sub">A little data. A lot of clarity.</span></span></a>
+    <div class="workspace"><span class="shop-avatar" aria-hidden="true">☕</span><div><strong id="shop-name">Sunday Bakery</strong><span id="workspace-description">Your sample workspace</span></div><span class="status-dot" aria-hidden="true"></span></div>
+    <div class="nav-label">WORKSPACE</div>
+    <nav aria-label="Main navigation">
+      <a class="nav-item active" href="#overview"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"/></svg>Overview <span>01</span></a>
+      <a class="nav-item" href="#products"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 7 9-4 9 4-9 4-9-4Zm0 0v10l9 4 9-4V7M12 11v10"/></svg>Products</a>
+      <a class="nav-item" href="#price-check"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V9m8 10V4m8 15v-7M2 21h20"/></svg>Price check</a>
+      <a class="nav-item" href="#next-steps"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m13 2-8 12h6l-1 8 9-13h-6l1-7Z"/></svg>Next steps</a>
+    </nav>
+    <div class="sidebar-bottom"><div class="privacy-mark" aria-hidden="true">◈</div><strong>Your numbers stay yours.</strong><p>Sales files are analyzed in your browser and cleared when you refresh.</p><a href="https://github.com/Boongmsba/shop-signals" target="_blank" rel="noreferrer">About this project <span aria-hidden="true">↗</span></a><div class="sidebar-footer">MADE FOR THE NEIGHBORHOOD</div></div>
+  </aside>
+  <div class="main-shell">
+    <header class="topbar"><span>Workspace <span class="breadcrumb-slash">/</span> <strong>Overview</strong></span><div class="topbar-right"><span id="source-badge" class="demo-badge"><span></span> SYNTHETIC DEMO</span><button id="reset-demo" class="text-button" type="button">Reset demo</button><span class="user-avatar" aria-label="Shop workspace">SS</span></div></header>
+    <main id="overview" tabindex="-1">
+      <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+      <section class="page-heading"><div><div class="eyebrow">THE BIG PICTURE</div><h1>Small shop. Clear signals.</h1><p>A closer look at what’s selling, and what to try next.</p></div><div class="heading-actions"><button id="export-report" class="button button-light" disabled><span aria-hidden="true">↓</span> Export report</button><button id="open-upload" class="button button-dark"><span aria-hidden="true">+</span> Upload sales</button></div></section>
+      <div class="dataset-toolbar"><div><span class="live-dot" aria-hidden="true"></span><strong id="dataset-name">Sunday Bakery · sample sales</strong><span class="data-subtitle" id="dataset-description">Loading sample data…</span></div><label class="period-control">Show <select id="period" aria-label="Sales date range"><option value="7">Last 7 days</option><option value="28" selected>Last 28 days</option><option value="56">Last 56 days</option><option value="all">All dates</option></select></label></div>
+      <div id="dashboard" aria-busy="true">
+        <section class="metric-grid" aria-label="Sales summary">
+          <article class="metric-card"><div class="metric-label">Sales revenue <span aria-hidden="true">↗</span></div><div id="revenue" class="metric-value">—</div><div id="revenue-change" class="metric-detail">Based on your selected period</div></article>
+          <article class="metric-card"><div class="metric-label">Items sold <span aria-hidden="true">◫</span></div><div id="units" class="metric-value">—</div><div id="record-count" class="metric-detail">Individual product quantities</div></article>
+          <article class="metric-card"><div class="metric-label">Average item price <span aria-hidden="true">◎</span></div><div id="average-price" class="metric-value">—</div><div class="metric-detail">Revenue ÷ items sold</div></article>
+          <article class="metric-card highlighted"><div class="metric-label">Your bestseller <span aria-hidden="true">✦</span></div><div id="bestseller" class="metric-value product-name">—</div><div id="bestseller-detail" class="metric-detail">Ranked by sales revenue</div></article>
+        </section>
+        <div class="chart-and-note">
+          <section class="panel trend-panel" aria-labelledby="trend-title"><div class="panel-heading"><div><h2 id="trend-title">The rhythm of your sales</h2><p>Daily revenue, one day at a time.</p></div><span class="chart-legend"><i></i> Revenue</span></div><div id="chart" class="chart-container"></div><div class="chart-footer"><span id="date-range">—</span><span>USD · Missing dates count as $0</span></div><details class="chart-data"><summary>View chart data</summary><div class="scroll-table"><table><caption class="sr-only">Daily sales revenue</caption><thead><tr><th scope="col">Date</th><th scope="col">Revenue</th><th scope="col">Items</th></tr></thead><tbody id="daily-table"></tbody></table></div></details></section>
+          <aside class="spotlight" aria-label="Top product insight"><div class="spotlight-top"><span class="eyebrow">A SIGNAL WORTH NOTICING</span><span class="spark" aria-hidden="true">✳</span></div><div><p class="spotlight-caption">Your top product brings in</p><div id="top-share" class="spotlight-number">—<span>%</span></div><h2 id="spotlight-product">Loading your signal…</h2><p id="spotlight-detail">A useful starting point for your next small experiment.</p></div><a href="#next-steps">See your next steps <span aria-hidden="true">↗</span></a></aside>
+        </div>
+        <section class="panel products-panel" id="products" aria-labelledby="products-title"><div class="panel-heading"><div><div class="eyebrow">THE EVERYDAY FAVORITES</div><h2 id="products-title">What’s moving off the shelf</h2></div><span id="product-count" class="count-badge">— products</span></div><div class="scroll-table"><table class="product-table"><caption class="sr-only">Products ranked by revenue in the selected period</caption><thead><tr><th scope="col">Product</th><th scope="col">Items sold</th><th scope="col">Avg. price</th><th scope="col">Revenue</th><th scope="col">Share of revenue</th></tr></thead><tbody id="product-table"></tbody></table></div></section>
+        <div class="bottom-grid">
+          <section class="panel price-panel" id="price-check" aria-labelledby="price-title"><div class="panel-heading"><div><div class="eyebrow">A LITTLE MARKET CONTEXT</div><h2 id="price-title">How does your price compare?</h2><p>Enter one price you’ve observed elsewhere.</p></div><span class="round-icon" aria-hidden="true">↔</span></div><form id="price-form"><label for="compare-product">Your product</label><select id="compare-product" required></select><div class="price-fields"><div><label for="competitor-price">Other shop’s price (USD)</label><div class="currency-input"><span>$</span><input id="competitor-price" name="price" type="number" min="0" max="1000000" step="0.01" placeholder="5.25" required inputmode="decimal"></div></div><div class="your-price"><span>Your average price</span><strong id="own-price">—</strong></div></div><button type="submit" class="button button-dark compare-button">Compare prices <span aria-hidden="true">→</span></button></form><div id="comparison-result" class="comparison-result" role="status" hidden></div><p class="fine-print">Compare the same size and product. One price is context, not a market average or a reason to change yours.</p></section>
+          <section id="next-steps" class="next-steps" aria-labelledby="steps-title"><div class="panel-heading"><div><div class="eyebrow">SMALL EXPERIMENTS, REAL LEARNING</div><h2 id="steps-title">Your next three moves</h2><p>Simple ideas grounded in the numbers above.</p></div></div><div id="recommendations"></div><p class="fine-print">Rule-based suggestions. Test what fits your business; these are not forecasts.</p></section>
+        </div>
+      </div>
+      <footer class="main-footer"><span>shop signals <span class="footer-dot">•</span> A clearer view of your everyday.</span><span id="footer-source">Demo numbers are synthetic. Revenue is not profit.</span></footer>
+    </main>
+  </div>
+  <dialog id="upload-dialog" aria-labelledby="upload-title"><div class="dialog-heading"><div><div class="eyebrow">BRING YOUR OWN NUMBERS</div><h2 id="upload-title">Let’s read your sales.</h2></div><button id="close-upload" class="close-button" aria-label="Close upload dialog">×</button></div><p>Choose a CSV export. It stays in this browser and replaces the demo until you refresh.</p><label class="file-picker" for="csv-file"><span class="upload-symbol" aria-hidden="true">↥</span><strong>Choose a sales CSV</strong><span>Up to 2 MiB · 50,000 records</span><input id="csv-file" type="file" accept=".csv,text/csv"></label><div class="format-help"><strong>Your columns</strong><code>date,product,quantity,unit_price</code><p>Dates: YYYY-MM-DD. Quantity: positive whole numbers. Price: USD with up to two decimals. Optional: category.</p><a href="./data/sample-sales.csv" download>Download the synthetic example ↗</a></div><details class="paste-option"><summary>Or paste CSV text</summary><label class="sr-only" for="csv-text">Sales CSV text</label><textarea id="csv-text" rows="5" spellcheck="false" placeholder="date,product,quantity,unit_price&#10;2026-10-01,Latte,12,4.50"></textarea><button id="analyze-paste" class="button button-dark" type="button">Analyze pasted CSV</button></details><p id="upload-error" class="upload-error" role="alert" hidden></p></dialog>
+</body>
+</html>
