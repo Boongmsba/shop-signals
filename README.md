@@ -2,6 +2,8 @@
 
 A browser-based sales dashboard that turns a small shop’s CSV into revenue trends, product rankings, and practical questions to investigate.
 
+[Open the demo](https://boongmsba.github.io/shop-signals/) · [Read the build guide](docs/BUILD_GUIDE.md) · [View automated checks](https://github.com/Boongmsba/shop-signals/actions/workflows/test.yml)
+
 Shop Signals is an original portfolio project with its own code and Git history. It was built with AI assistance; it does not reuse the `crumbs` source code or claim its contributors’ work.
 
 ![Shop Signals dashboard with synthetic bakery data](docs/dashboard.jpg)

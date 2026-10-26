@@ -1,6 +1,6 @@
 # How Shop Signals was built
 
-This guide explains the implementation and the steps to put it on your own GitHub. The publishing commands are a reproducible workflow, not a claim that a deployment has completed.
+This guide explains how Shop Signals was built and published to [Boongmsba/shop-signals](https://github.com/Boongmsba/shop-signals). It is a public, independent repository. The steps below also show how to repeat the workflow for a future project.
 
 ## 1. Define a small problem
 
@@ -88,7 +88,9 @@ node --test
 
 Or use `npm test`, which runs the same test command. No `npm install` is needed.
 
-For the browser check, load the demo, switch between date windows, upload `data/sample-sales.csv`, try a malformed file, enter a competitor price, and export the analysis. Confirm that the layout also works in a narrow browser window. A successful test run is evidence about the cases it covers, not proof that every possible input is correct.
+For the browser check, load the demo, switch between date windows, upload `data/sample-sales.csv`, try a malformed file, enter a competitor price, and export the analysis. Confirm that the layout also works in a narrow browser window.
+
+The initial build passed 14 automated tests locally and on GitHub. Browser checks covered file upload, pasted CSV, invalid-date rejection, all four date filters, recovery from an unsupported date span, price comparisons, JSON download contents, and desktop/phone layouts. The review also led to fixes for short-data weekday advice and stale demo requests. These checks cover the tested cases, not every possible input.
 
 ## 8. Save the project in Git
 
@@ -137,12 +139,12 @@ Run this creation command only when that repository does not already exist. For 
 
 Because the app is static, GitHub Pages can serve the project files. In the repository’s **Settings → Pages**, configure the publishing source for this project. With branch-based publishing, select `main` and the repository root, then save. If a Pages workflow has already been configured, use that workflow instead of creating a second publishing path.
 
-The expected project address for this account and repository name is [https://boongmsba.github.io/shop-signals/](https://boongmsba.github.io/shop-signals/). Treat it as live only after GitHub reports a successful deployment and the page loads correctly.
+The project address is [https://boongmsba.github.io/shop-signals/](https://boongmsba.github.io/shop-signals/). For this build, GitHub Pages was configured to serve `main` from the repository root; the empty `.nojekyll` file tells Pages to serve the static files directly. In future projects, verify a successful deployment before sharing the live link.
 
 For your next change, create a branch:
 
 ```bash
-git switch -c feature/my-first-improvement
+git switch -c codex/my-first-improvement
 ```
 
 Make one focused improvement, run the tests, and check the browser behavior. Then save and share it:
@@ -150,7 +152,7 @@ Make one focused improvement, run the tests, and check the browser behavior. The
 ```bash
 git add .
 git commit -m "Describe the improvement"
-git push -u origin feature/my-first-improvement
+git push -u origin codex/my-first-improvement
 ```
 
 Open a pull request to `main` in GitHub. Explain what changed, why, and how you checked it. Reviewing a small change is a useful way to practice working on a project you understand.
