@@ -1,14 +1,14 @@
 /**
  * Shop Signals' dependency-free sales analytics.
- * All dates are calendar dates in UTC. Revenue is accumulated as integer cents.
+ * All dates are calendar dates in UTC. Revenue and cost use integer cents.
  * A CSV row is a sales record, not necessarily a unique order or transaction.
  */
 const DAY_MS = 86_400_000;
 const MAX_BYTES = 2 * 1024 * 1024;
 const MAX_ROWS = 50_000;
 const REQUIRED_HEADERS = ['date', 'product', 'quantity', 'unit_price'];
-const KNOWN_HEADERS = new Set([...REQUIRED_HEADERS, 'category']);
-const EMPTY_TOTALS = () => ({ revenue: 0, units: 0, records: 0, avgUnitPrice: 0 });
+const KNOWN_HEADERS = new Set([...REQUIRED_HEADERS, 'category', 'unit_cost']);
+const EMPTY_TOTALS = () => ({ revenue: 0, units: 0, records: 0, avgUnitPrice: 0, ...marginFields(0, 0, 0, 0, 0) });
 
 function fail(message) {
   throw new Error(message);
@@ -36,20 +36,32 @@ function checkedAdd(a, b, context) {
   return sum;
 }
 
-function checkedLineCents(quantity, cents, context) {
+function centsToDollars(cents, context) {
+  const dollars = cents / 100;
+  const digits = String(Math.abs(cents)).padStart(3, '0');
+  const expected = `${cents < 0 ? '-' : ''}${digits.slice(0, -2)}.${digits.slice(-2)}`;
+  const [whole, fraction = ''] = dollars.toString().split('.');
+  const serialized = `${whole}.${fraction.padEnd(2, '0')}`;
+  if (!Number.isSafeInteger(cents) || Math.round(dollars * 100) !== cents || fraction.length > 2 || serialized !== expected) {
+    fail(`${context} is too large to represent exactly in cents. Use a smaller dataset or amount.`);
+  }
+  return dollars;
+}
+
+function checkedLineCents(quantity, cents, context, field = 'unit_price') {
   const total = quantity * cents;
-  if (!Number.isSafeInteger(total)) fail(`${context}: quantity × unit_price is too large to calculate safely.`);
+  if (!Number.isSafeInteger(total)) fail(`${context}: quantity × ${field} is too large to calculate safely.`);
   return total;
 }
 
-function decimalCents(value, context) {
+function decimalCents(value, context, field = 'unit_price') {
   // Decimal currency only: reject currency symbols, exponents, and fractional cents.
   if (!/^(?:\d+(?:\.\d{1,2})?|\.\d{1,2})$/.test(value)) {
-    fail(`${context}: unit_price must be a nonnegative number with at most 2 decimal places (for example, 3.50).`);
+    fail(`${context}: ${field} must be a nonnegative number with at most 2 decimal places (for example, 3.50).`);
   }
   const [whole, fraction = ''] = value.split('.');
-  const cents = Number(whole || '0') * 100 + Number(fraction.padEnd(2, '0'));
-  if (!Number.isSafeInteger(cents)) fail(`${context}: unit_price is too large to calculate safely.`);
+  const cents = Number(`${whole || '0'}${fraction.padEnd(2, '0')}`);
+  if (!Number.isSafeInteger(cents)) fail(`${context}: ${field} is too large to calculate safely.`);
   return cents;
 }
 
@@ -119,8 +131,9 @@ function readCSV(text) {
  * Parse a UTF-8 CSV up to 2 MiB and 50,000 records. Header names are trimmed and
  * case-insensitive; extra columns are ignored with a warning. Currency must have
  * at most two decimal places; dates must use years 1900–9999. Empty physical rows
- * are ignored. Errors identify
- * the source line and reject the whole import, rather than silently dropping data.
+ * are ignored. Optional unit_cost is normalized to unitCost: null when absent or
+ * blank; explicit zero is a known cost. Errors identify the source line and reject
+ * the whole import, rather than silently dropping data.
  */
 export function parseSalesCSV(text) {
   if (typeof text !== 'string') fail('Provide CSV text to import.');
@@ -151,7 +164,9 @@ export function parseSalesCSV(text) {
     const quantity = Number(record.quantity);
     const cents = decimalCents(record.unit_price, context);
     checkedLineCents(quantity, cents, context);
-    return { date: record.date, product: record.product, category: record.category || 'Uncategorized', quantity, unitPrice: cents / 100 };
+    const costCents = record.unit_cost == null || record.unit_cost === '' ? null : decimalCents(record.unit_cost, context, 'unit_cost');
+    if (costCents !== null) checkedLineCents(quantity, costCents, context, 'unit_cost');
+    return { date: record.date, product: record.product, category: record.category || 'Uncategorized', quantity, unitPrice: centsToDollars(cents, `${context}: unit_price`), unitCost: costCents === null ? null : centsToDollars(costCents, `${context}: unit_cost`) };
   });
   return { rows, warnings };
 }
@@ -170,19 +185,48 @@ function validateRows(rows) {
     if (!Number.isSafeInteger(cents) || Math.abs(row.unitPrice * 100 - cents) > 0.000001) {
       fail(`${context}: unitPrice must have at most 2 decimal places and fit safely in cents.`);
     }
+    let costCents = null;
+    if (row.unitCost != null) {
+      if (!Number.isFinite(row.unitCost) || row.unitCost < 0) fail(`${context}: unitCost must be a nonnegative number or null when unknown.`);
+      costCents = Math.round(row.unitCost * 100);
+      if (!Number.isSafeInteger(costCents) || Math.abs(row.unitCost * 100 - costCents) > 0.000001) {
+        fail(`${context}: unitCost must have at most 2 decimal places and fit safely in cents.`);
+      }
+    }
     if (row.category != null && typeof row.category !== 'string') fail(`${context}: category must be text.`);
-    return { ...row, product: row.product.trim(), category: row.category?.trim() || 'Uncategorized', time, cents, revenueCents: checkedLineCents(row.quantity, cents, context) };
+    return { ...row, product: row.product.trim(), category: row.category?.trim() || 'Uncategorized', unitPrice: centsToDollars(cents, `${context}: unitPrice`), unitCost: costCents === null ? null : centsToDollars(costCents, `${context}: unitCost`), time, cents, revenueCents: checkedLineCents(row.quantity, cents, context), costCents: costCents === null ? null : checkedLineCents(row.quantity, costCents, context, 'unitCost') };
   });
+}
+
+function marginFields(revenueCents, records, costCents, costedRecords, costedUnits, context = 'Total') {
+  const complete = records > 0 && costedRecords === records;
+  const profitCents = complete ? checkedAdd(revenueCents, -costCents, 'Gross profit') : null;
+  return {
+    cost: complete ? centsToDollars(costCents, `${context} cost`) : null,
+    grossProfit: complete ? centsToDollars(profitCents, `${context} gross profit`) : null,
+    grossMarginPct: complete && revenueCents > 0 ? (profitCents / revenueCents) * 100 : null,
+    costedRecords,
+    missingCostRecords: records - costedRecords,
+    costedUnits,
+  };
 }
 
 function summarize(rows) {
   let cents = 0;
   let units = 0;
+  let costCents = 0;
+  let costedRecords = 0;
+  let costedUnits = 0;
   for (const row of rows) {
     cents = checkedAdd(cents, row.revenueCents, 'Total revenue');
     units = checkedAdd(units, row.quantity, 'Total quantity');
+    if (row.costCents !== null) {
+      costCents = checkedAdd(costCents, row.costCents, 'Total cost');
+      costedRecords += 1;
+      costedUnits = checkedAdd(costedUnits, row.quantity, 'Costed quantity');
+    }
   }
-  return { revenue: cents / 100, units, records: rows.length, avgUnitPrice: units ? cents / units / 100 : 0 };
+  return { revenue: centsToDollars(cents, 'Total revenue'), units, records: rows.length, avgUnitPrice: units ? cents / units / 100 : 0, ...marginFields(cents, rows.length, costCents, costedRecords, costedUnits) };
 }
 
 const money = (value) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value);
@@ -205,7 +249,7 @@ function recommend({ products, totals, series, range }, coverageDays = 0) {
   } else if (top.share >= 0.5) {
     output.push({ title: 'Test demand beyond the top product', detail: `${top.product} accounts for ${(top.share * 100).toFixed(1)}% of revenue across ${products.length} products.`, action: `Try a small feature for ${products[1].product} and track whether its units rise without reducing total revenue.` });
   } else {
-    output.push({ title: 'Try a two-product feature', detail: `${top.product} and ${products[1].product} together account for ${((top.share + products[1].share) * 100).toFixed(1)}% of revenue.`, action: 'Display these items together for a week. Compare units and revenue before considering a discount; this data has no cost information.' });
+    output.push({ title: 'Try a two-product feature', detail: `${top.product} and ${products[1].product} together account for ${((top.share + products[1].share) * 100).toFixed(1)}% of revenue.`, action: 'Display these items together for a week. Compare units and revenue, and review complete unit costs before considering a discount.' });
   }
   if (coverageDays < 14 || totals.revenue === 0) {
     output.push({ title: 'Build a longer baseline', detail: `Imported dates cover ${coverageDays} calendar ${coverageDays === 1 ? 'day' : 'days'} within this ${range.days}-day view. Missing dates are treated as zero sales.`, action: 'Confirm that the export is complete and collect at least 14 days of sales coverage before testing a weekday promotion.' });
@@ -231,6 +275,9 @@ function recommend({ products, totals, series, range }, coverageDays = 0) {
  * reaches its first day and prior revenue is positive. Weekday experiments require
  * at least 14 calendar days of actual imported date coverage within the view,
  * measured from max(earliest imported date, window start) to the latest date.
+ * Cost and gross profit are reported only for nonempty aggregates whose every
+ * record has a known unit cost. Gross margin is a percentage of revenue, or null
+ * when revenue is zero or costs are incomplete. This is not net profit.
  * No records imply no range.
  */
 export function analyzeSales(rows, days = null) {
@@ -258,27 +305,38 @@ export function analyzeSales(rows, days = null) {
   const dayMap = new Map();
   for (const row of current) {
     let product = productMap.get(row.product);
-    if (!product) { product = { product: row.product, categories: new Set(), quantity: 0, cents: 0 }; productMap.set(row.product, product); }
+    if (!product) { product = { product: row.product, categories: new Set(), quantity: 0, cents: 0, records: 0, costCents: 0, costedRecords: 0, costedUnits: 0 }; productMap.set(row.product, product); }
     product.categories.add(row.category);
+    product.records += 1;
     product.quantity = checkedAdd(product.quantity, row.quantity, 'Product quantity');
     product.cents = checkedAdd(product.cents, row.revenueCents, 'Product revenue');
+    if (row.costCents !== null) {
+      product.costCents = checkedAdd(product.costCents, row.costCents, 'Product cost');
+      product.costedRecords += 1;
+      product.costedUnits = checkedAdd(product.costedUnits, row.quantity, 'Product costed quantity');
+    }
     const daily = dayMap.get(row.date) || { cents: 0, quantity: 0 };
     daily.cents = checkedAdd(daily.cents, row.revenueCents, 'Daily revenue');
     daily.quantity = checkedAdd(daily.quantity, row.quantity, 'Daily quantity');
     dayMap.set(row.date, daily);
   }
-  const products = [...productMap.values()].sort((a, b) => b.cents - a.cents || a.product.localeCompare(b.product)).map((product) => ({
-    product: product.product,
-    category: product.categories.size === 1 ? [...product.categories][0] : 'Multiple categories',
-    quantity: product.quantity,
-    revenue: product.cents / 100,
-    avgPrice: product.cents / product.quantity / 100,
-    share: totals.revenue ? (product.cents / 100) / totals.revenue : 0,
-  }));
+  const products = [...productMap.values()].sort((a, b) => b.cents - a.cents || a.product.localeCompare(b.product)).map((product) => {
+    const revenue = centsToDollars(product.cents, 'Product revenue');
+    return {
+      product: product.product,
+      category: product.categories.size === 1 ? [...product.categories][0] : 'Multiple categories',
+      quantity: product.quantity,
+      records: product.records,
+      revenue,
+      avgPrice: product.cents / product.quantity / 100,
+      share: totals.revenue ? revenue / totals.revenue : 0,
+      ...marginFields(product.cents, product.records, product.costCents, product.costedRecords, product.costedUnits, 'Product'),
+    };
+  });
   const series = Array.from({ length }, (_, index) => {
     const date = isoDate(start + index * DAY_MS);
     const daily = dayMap.get(date);
-    return { date, revenue: daily ? daily.cents / 100 : 0, quantity: daily?.quantity || 0 };
+    return { date, revenue: daily ? centsToDollars(daily.cents, 'Daily revenue') : 0, quantity: daily?.quantity || 0 };
   });
   const result = {
     range: { start: isoDate(start), end: isoDate(max), days: length, previousStart: isoDate(previousStart), previousEnd: isoDate(previousEnd) },

@@ -2,6 +2,8 @@
 
 This guide explains how Shop Signals was built and published to [Boongmsba/shop-signals](https://github.com/Boongmsba/shop-signals). It is a public, independent repository. The steps below also show how to repeat the workflow for a future project.
 
+Version 2 adds optional product costs, gross profit, and gross margin to that original project. The version 2 changes and their verification are explained below.
+
 ## 1. Define a small problem
 
 The starting question was: “Can a small shop understand its sales CSV without setting up a complicated system?”
@@ -15,6 +17,8 @@ The first version focuses on a short path:
 5. Export the analysis.
 
 Keeping this scope small makes the project easier to run, test, and explain. A database, sign-in, live price collection, and AI-generated advice would each require additional work and were outside this version’s scope.
+
+Version 2 extends the second step: when cost data is available, compare revenue with gross profit and rank products by their gross profit or gross margin. Older CSVs still support the original revenue analysis.
 
 ## 2. Start an independent project
 
@@ -41,16 +45,18 @@ The analytics module is separate from the interface so calculations can be teste
 
 ## 4. Define and validate the data
 
-The CSV contract requires `date`, `product`, `quantity`, and `unit_price`. `category` is optional. Dates must be real calendar dates in 1900 or later; prices allow up to two decimal places.
+The CSV contract requires `date`, `product`, `quantity`, and `unit_price`. `category` and the version 2 `unit_cost` column are optional. Dates must be real calendar dates in 1900 or later; prices and costs are nonnegative USD values with up to two decimal places.
 
 For example:
 
 ```csv
-date,product,quantity,unit_price,category
-2026-10-01,Sourdough Loaf,12,8.50,Bread
+date,product,quantity,unit_price,category,unit_cost
+2026-10-01,Sourdough Loaf,12,8.50,Bread,3.20
 ```
 
-That record contributes 12 units and $102.00 in revenue. Input checks reject invalid records instead of quietly turning bad values into misleading totals. The supported scope is positive whole-unit sales in USD, with no returns. Files are limited to 2 MiB and 50,000 data rows.
+That record contributes 12 units, $102.00 in revenue, and $38.40 in supplied product costs. A missing `unit_cost` column or blank cost cell means the cost is unknown. An explicit `0` means the cost is known and is zero. This distinction preserves older CSVs without silently treating their costs as free.
+
+Input checks reject invalid records instead of quietly turning bad values into misleading totals. The supported scope is positive whole-unit sales in USD, with no returns. Files are limited to 2 MiB and 50,000 data rows.
 
 The demo covers 56 days of fictional bakery sales. Synthetic data lets anyone explore the project without publishing a real business’s records.
 
@@ -64,11 +70,53 @@ Action cards connect a rule to evidence from the data. They suggest what to inve
 
 Revenue is accumulated in integer cents to avoid floating-point money errors. Average item prices are weighted by quantity. Previous-period percentages are shown only when the data reaches the start of the prior window and its revenue is positive. Weekday suggestions require at least 14 days of imported date coverage.
 
+Version 2 adds cost calculations to those same selected records. A row contributes `quantity × unit_cost` in product costs, using the cost supplied on that row. If the same product’s cost changes next week, its later sales use the later cost. Aggregation therefore reflects the quantities sold at each cost rather than using one current cost for all historical sales.
+
+Cost and gross profit are reported only when all rows in the relevant aggregate have costs. This rule is checked independently for the selected total and each product. Complete products can show results even when another product’s missing costs prevent a total from being calculated. The coverage label makes missing costs visible.
+
 ## 6. Connect the interface
 
-The browser module responds to file uploads, date filters, price inputs, and export actions. It calls the analytics functions and updates the page.
+The browser module responds to file uploads, date filters, product ranking choices, price inputs, and export actions. It calls the analytics functions and updates the page.
 
 Uploaded data stays in browser memory. Refreshing resets the session. Export downloads a JSON snapshot so you can keep the analysis yourself. This design makes the first version easy to host as static files.
+
+### Version 2: add gross profit step by step
+
+1. **Extend the input format.** Accept optional `unit_cost`, validate it as a nonnegative USD amount with at most two decimal places, and preserve blank or absent costs as unknown. Do not require users to change an older CSV.
+2. **Calculate row costs.** Multiply each known unit cost by that row’s quantity. Keep the cost attached to the original row so historical cost changes are respected.
+3. **Check coverage before showing totals.** For each product and the selected dataset, check whether every included row has a cost. Show **Cost needed** for incomplete cost and gross-profit aggregates instead of displaying a misleading partial total.
+4. **Calculate gross profit and margin.** Subtract total product costs from total revenue. Divide total gross profit by total revenue to get gross margin. Do not average individual product margins; preserve negative gross profit and leave margin undefined when revenue is zero.
+5. **Present the result.** Add cost, gross-profit, gross-margin, and coverage information to the summary and product table. Offer revenue, gross-profit, and margin rankings. Put products with unavailable values after products with known values, and recalculate when the date window changes.
+6. **Extend the export.** Include the new cost, gross-profit, margin, and coverage values in the JSON analysis totals and products. Keep the existing revenue fields so a revenue-only analysis remains useful.
+
+Here is a small example you can paste into the upload dialog:
+
+```csv
+date,product,quantity,unit_price,unit_cost
+2026-10-01,Country Loaf,2,7.50,3.00
+2026-10-01,Banana Bread,3,5.00,2.00
+```
+
+| Calculation | Country Loaf | Banana Bread | Total |
+| --- | ---: | ---: | ---: |
+| Revenue: quantity × unit price | $15.00 | $15.00 | $30.00 |
+| Cost: quantity × unit cost | $6.00 | $6.00 | $12.00 |
+| Gross profit: revenue − cost | $9.00 | $9.00 | $18.00 |
+| Gross margin: gross profit ÷ revenue | 60% | 60% | 60% |
+
+The total gross margin is `$18 ÷ $30 × 100 = 60%`. This formula also works when the products have different margins and sales volumes; a simple average of their percentages would not.
+
+Now delete the final `2.00` so the Banana Bread row ends with a comma:
+
+```csv
+date,product,quantity,unit_price,unit_cost
+2026-10-01,Country Loaf,2,7.50,3.00
+2026-10-01,Banana Bread,3,5.00,
+```
+
+Revenue still totals $30.00. Total cost, gross profit, and margin are withheld because Banana Bread’s cost is unknown. Country Loaf still has complete costs and can show its $6.00 cost, $9.00 gross profit, and 60% margin. Entering `0` for Banana Bread would instead declare a known zero cost and allow complete totals; it must not be used as a substitute for an unknown cost.
+
+Gross profit includes only the product costs you supply. Operating expenses, tax, and fees are not automatically modeled, so the result is not net profit. The demo remains synthetic, and every calculation still runs in the browser.
 
 ## 7. Run and check it locally
 
@@ -88,9 +136,11 @@ node --test
 
 Or use `npm test`, which runs the same test command. No `npm install` is needed.
 
-For the browser check, load the demo, switch between date windows, upload `data/sample-sales.csv`, try a malformed file, enter a competitor price, and export the analysis. Confirm that the layout also works in a narrow browser window.
+For the browser check, load the demo, switch between date windows, upload `data/sample-sales.csv`, try a malformed file, enter a competitor price, and export the analysis. Confirm that the layout also works in a narrow browser window. For version 2, use the worked examples above, try an older CSV without `unit_cost`, change product rankings, and inspect the exported cost and gross-profit values. Also check explicit zero costs, costs above selling prices, zero-revenue products, and a product with different costs across dates.
 
-The initial build passed 14 automated tests locally and on GitHub. Browser checks covered file upload, pasted CSV, invalid-date rejection, all four date filters, recovery from an unsupported date span, price comparisons, JSON download contents, and desktop/phone layouts. The review also led to fixes for short-data weekday advice and stale demo requests. These checks cover the tested cases, not every possible input.
+Version 2 passed 26 automated tests locally. Browser checks covered historical row costs, weighted margins, partial costs within one product, older CSVs without costs, explicit zero costs, zero-revenue margins, losses, all three product rankings, date-filter coverage changes, invalid cost rejection, sample-file upload, JSON download contents, and desktop/phone layouts. Changing product ranking also preserves an existing competitor-price comparison. An independent review identified an extreme-amount precision case; the engine now rejects monetary values that cannot preserve cents in exported numbers, with regression tests for that boundary.
+
+The initial build also covered invalid dates, all four date filters, unsupported date-span recovery, and stale demo requests. For each future change, run the current tests and inspect [GitHub checks and deployments](https://github.com/Boongmsba/shop-signals/actions). These checks cover the tested cases, not every possible input.
 
 ## 8. Save the project in Git
 
@@ -161,8 +211,8 @@ Open a pull request to `main` in GitHub. Explain what changed, why, and how you 
 
 An accurate starting description is:
 
-> I developed an original, AI-assisted sales dashboard that validates CSV data, calculates product and revenue metrics in the browser, and presents rule-based suggestions with supporting evidence. The demonstration uses synthetic sales data.
+> I developed an original, AI-assisted sales dashboard that validates CSV data, calculates revenue and gross profit in the browser, and presents rule-based suggestions with supporting evidence. It distinguishes missing costs from known zero costs and reports gross margin only when the relevant costs are complete. The demonstration uses synthetic sales data.
 
 Only add claims about your own decisions, independent implementation, users, or measured impact when you can support them. Before an interview, be ready to walk through one CSV record, explain how the totals are calculated, identify a test that catches a real mistake, and discuss a limitation you would address next.
 
-Good next steps include adding unit costs to calculate gross margin, making the CSV importer support another documented format, or interviewing a shop owner to learn whether the dashboard answers a useful question. Record the work you actually do in commits and the README.
+Good next steps include adding custom date comparisons, making the CSV importer support another documented format, or interviewing a shop owner to learn whether the dashboard answers a useful question. Record the work you actually do in commits and the README.

@@ -82,8 +82,53 @@ function renderChart(series) {
   $('daily-table').replaceChildren(...dataRows);
 }
 
-function renderProducts(products) {
-  const tableRows = products.map((product) => {
+function renderCosts(totals) {
+  const missing = totals.missingCostRecords;
+  const complete = totals.cost !== null;
+  const noRecords = totals.records === 0;
+  const unavailable = noRecords ? 'No sales' : 'Cost needed';
+  $('cost-total').textContent = complete ? money(totals.cost) : unavailable;
+  $('gross-profit').textContent = complete ? money(totals.grossProfit) : unavailable;
+  $('gross-margin').textContent = totals.grossMarginPct !== null ? `${totals.grossMarginPct.toFixed(1)}%` : complete ? 'N/A' : unavailable;
+  $('gross-margin-detail').textContent = complete && totals.revenue === 0 ? 'Undefined when revenue is $0' : 'Gross profit ÷ revenue × 100';
+  for (const id of ['cost-total', 'gross-profit', 'gross-margin']) $(id).classList.toggle('cost-unavailable', !complete);
+  $('gross-profit').classList.toggle('is-loss', complete && totals.grossProfit < 0);
+  $('gross-margin').classList.toggle('is-loss', totals.grossMarginPct !== null && totals.grossMarginPct < 0);
+  $('cost-coverage').textContent = `${integer.format(totals.costedRecords)} of ${integer.format(totals.records)} records have costs`;
+  $('cost-coverage').classList.toggle('coverage-incomplete', !complete);
+  $('cost-help').textContent = complete
+    ? 'All selected sales records include costs. Gross profit subtracts the product costs you provide; operating expenses are excluded.'
+    : noRecords ? 'No sales records are available in this period.'
+    : `Add unit_cost to ${integer.format(missing)} ${totals.costedRecords ? 'remaining ' : ''}sales record${missing === 1 ? '' : 's'} to see complete totals. Products with complete costs still show their own results. Unknown costs are never assumed to be $0.`;
+}
+
+function costCell(product, field) {
+  const value = product[field];
+  const cell = element('td', value !== null && value < 0 ? 'cell-negative' : field === 'grossProfit' ? 'revenue-cell' : '');
+  if (value === null) {
+    const undefinedMargin = field === 'grossMarginPct' && product.cost !== null;
+    const label = element('span', 'cost-needed', undefinedMargin ? 'N/A' : 'Cost needed');
+    label.title = undefinedMargin
+      ? 'Gross margin is undefined when revenue is $0.'
+      : `${product.missingCostRecords} of ${product.records} sales records are missing unit_cost. No partial cost or profit is shown.`;
+    cell.append(label);
+  } else {
+    cell.textContent = field === 'grossMarginPct' ? `${value.toFixed(1)}%` : money(value);
+  }
+  return cell;
+}
+
+function renderProducts(products, refreshPriceOptions = true) {
+  const sortKey = $('product-sort').value;
+  const sortName = { revenue: 'revenue', grossProfit: 'gross profit', grossMarginPct: 'gross margin' }[sortKey];
+  const ranked = [...products].sort((a, b) => {
+    if (a[sortKey] === null && b[sortKey] !== null) return 1;
+    if (b[sortKey] === null && a[sortKey] !== null) return -1;
+    return (b[sortKey] ?? 0) - (a[sortKey] ?? 0) || b.revenue - a.revenue || a.product.localeCompare(b.product);
+  });
+  $('product-caption').textContent = `Products ranked by ${sortName}, highest first, in the selected period`;
+  $('product-ranking-note').textContent = `Products ranked by ${sortName}, highest first.${sortKey === 'revenue' ? '' : ' Unavailable values appear last.'} Scroll across the table to see all columns.`;
+  const tableRows = ranked.map((product) => {
     const tr = element('tr');
     const nameCell = element('td');
     const nameContent = element('div', 'product-cell');
@@ -94,6 +139,7 @@ function renderProducts(products) {
     nameContent.append(monogram, names);
     nameCell.append(nameContent);
     tr.append(nameCell, element('td', '', integer.format(product.quantity)), element('td', '', money(product.avgPrice)), element('td', 'revenue-cell', money(product.revenue)));
+    tr.append(costCell(product, 'cost'), costCell(product, 'grossProfit'), costCell(product, 'grossMarginPct'));
     const mixCell = element('td');
     const share = element('div', 'share-cell');
     const track = element('div', 'share-track');
@@ -108,6 +154,7 @@ function renderProducts(products) {
   });
   $('product-table').replaceChildren(...tableRows);
   $('product-count').textContent = `${products.length} product${products.length === 1 ? '' : 's'}`;
+  if (!refreshPriceOptions) return;
   const selected = $('compare-product').value;
   $('compare-product').replaceChildren(...products.map((product) => {
     const option = element('option', '', product.product);
@@ -133,6 +180,7 @@ function render() {
   $('units').textContent = integer.format(totals.units);
   $('record-count').textContent = `Across ${integer.format(totals.records)} sales records`;
   $('average-price').textContent = money(totals.avgUnitPrice);
+  renderCosts(totals);
   const change = $('revenue-change');
   change.classList.remove('positive', 'negative');
   if (analysis.comparisonAvailable && analysis.changePct !== null) {
@@ -252,6 +300,7 @@ $('period').addEventListener('change', () => {
   }
 });
 $('compare-product').addEventListener('change', updateOwnPrice);
+$('product-sort').addEventListener('change', () => { if (analysis) renderProducts(analysis.products, false); });
 $('reset-demo').addEventListener('click', async () => {
   try {
     if (await loadDemo(true)) notice('The synthetic bakery demo has been restored.');
@@ -278,7 +327,7 @@ $('price-form').addEventListener('submit', (event) => {
 });
 $('export-report').addEventListener('click', () => {
   if (!analysis) return;
-  const report = { project: 'Shop Signals', generatedAt: new Date().toISOString(), currency: 'USD', source, assumptions: ['Dates without records are treated as zero sales.', 'Revenue is quantity × unit price, not profit.', 'Suggestions are rules, not forecasts.'], analysis, priceComparison: lastComparison };
+  const report = { project: 'Shop Signals', schemaVersion: 2, generatedAt: new Date().toISOString(), currency: 'USD', source, assumptions: ['Dates without records are treated as zero sales.', 'Revenue is quantity × unit price.', 'Product cost is quantity × unit_cost; gross profit is revenue minus product cost.', 'Aggregate cost and gross profit are null unless every record in that aggregate has a known cost.', 'Gross margin is gross profit divided by revenue × 100; it is null for zero revenue or missing costs.', 'Gross profit excludes operating expenses. Suggestions are rules, not forecasts.'], analysis, priceComparison: lastComparison };
   const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const link = element('a');
