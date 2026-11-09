@@ -1,4 +1,4 @@
-import { parseSalesCSV, analyzeSales, comparePrice } from './analytics.mjs';
+import { parseSalesCSV, analyzeSales, comparePrice } from './analytics.mjs?v=3.0.0';
 
 const $ = (id) => document.getElementById(id);
 const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });

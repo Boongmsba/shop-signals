@@ -239,7 +239,7 @@ Run this creation command only when that repository does not already exist. For 
 
 Because the app is static, GitHub Pages can serve the project files. In the repository’s **Settings → Pages**, configure the publishing source for this project. With branch-based publishing, select `main` and the repository root, then save. If a Pages workflow has already been configured, use that workflow instead of creating a second publishing path.
 
-The project address is [https://boongmsba.github.io/shop-signals/](https://boongmsba.github.io/shop-signals/). For this build, GitHub Pages was configured to serve `main` from the repository root; the empty `.nojekyll` file tells Pages to serve the static files directly. In future projects, verify a successful deployment before sharing the live link.
+The project address is [https://boongmsba.github.io/shop-signals/](https://boongmsba.github.io/shop-signals/). For this build, GitHub Pages was configured to serve `main` from the repository root; the empty `.nojekyll` file tells Pages to serve the static files directly. Version 3 adds release identifiers to the stylesheet and JavaScript URLs, including the imported analytics module, so cached scripts from an older release are not combined with the new page. When those assets change in a future release, update their identifiers together. Verify a successful deployment and the live controls before sharing the link.
 
 For your next change, create a branch:
 
