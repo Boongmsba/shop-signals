@@ -1759,6 +1759,193 @@ dialog::backdrop {
   }
 }
 
+.date-panel {
+  padding:18px 22px;
+  margin-bottom:20px;
+}
+
+.date-controls {
+  display:flex;
+  flex-wrap:wrap;
+  align-items:flex-end;
+  gap:14px 18px;
+}
+
+.date-control {
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  color:#65735a;
+  font-size:10px;
+  min-width:0;
+}
+
+.date-control select,
+.date-control input {
+  width:100%;
+  min-height:38px;
+  background:#fcfdf9;
+  color:var(--ink);
+  border:1px solid #dfe3d6;
+  border-radius:6px;
+  padding:8px 10px;
+  font-size:12px;
+}
+
+.date-control select {
+  min-width:145px;
+}
+
+.date-pair {
+  display:flex;
+  gap:10px;
+}
+
+.date-help {
+  margin-top:13px;
+  color:#7b8671;
+  font-size:10px;
+  line-height:1.7;
+}
+
+.date-applied {
+  margin-top:5px;
+  font-size:11px;
+  color:#516847;
+}
+
+.date-draft-status {
+  font-size:11px;
+  color:#8a6427;
+  margin-top:9px;
+}
+
+.comparison-panel {
+  margin-bottom:22px;
+}
+
+.comparison-panel .panel-heading {
+  align-items:center;
+}
+
+.comparison-note {
+  color:#68765e;
+  font-size:11px;
+  line-height:1.7;
+  padding:0 24px 18px;
+}
+
+.comparison-table {
+  min-width:640px;
+}
+
+.comparison-table thead th {
+  vertical-align:top;
+}
+
+.comparison-table th small {
+  display:block;
+  font-size:9px;
+  margin-top:4px;
+  font-weight:400;
+  color:#69765e;
+}
+
+.comparison-table tbody th {
+  background:transparent;
+  color:var(--ink);
+  border-top:0;
+  font-size:11px;
+  font-weight:500;
+}
+
+.comparison-change strong {
+  font-weight:600;
+}
+
+.comparison-change small {
+  display:block;
+  color:#77856b;
+  font-size:9px;
+  margin-top:3px;
+}
+
+.comparison-unavailable {
+  color:#8a682d;
+  font-size:11px;
+}
+
+.comparison-table td>small.comparison-unavailable {
+  display:block;
+  margin-top:3px;
+}
+
+.local-open-help {
+  position:fixed;
+  z-index:10;
+  bottom:18px;
+  right:18px;
+  left:18px;
+  width:fit-content;
+  max-width:calc(100% - 36px);
+  margin:auto;
+  background:#faf0d7;
+  color:#5b4a28;
+  border:1px solid #dfc98f;
+  border-radius:12px;
+  padding:17px 22px;
+  box-shadow:0 8px 35px #243b3520;
+  font-size:13px;
+}
+
+.local-open-help p {
+  margin-top:6px;
+}
+
+.local-open-help a {
+  text-underline-offset:3px;
+}
+
+@media(max-width:760px) {
+  .date-panel {
+    padding:17px;
+  }
+  .date-controls {
+    gap:13px;
+  }
+  .date-controls>.date-control {
+    flex:1 115px;
+  }
+  .date-control select {
+    min-width:0;
+  }
+  .date-pair {
+    width:100%;
+    gap:10px;
+  }
+  .date-pair>.date-control {
+    flex:1;
+  }
+  .date-controls>.button {
+    width:100%;
+    min-height:38px;
+  }
+  .date-control input {
+    min-width:0;
+  }
+  .comparison-panel .panel-heading {
+    flex-direction:column;
+    align-items:flex-start;
+    gap:10px;
+  }
+  .comparison-note {
+    padding:0 18px 15px;
+  }
+  .date-applied {
+    font-size:10px;
+  }
+}
+
 @media(prefers-reduced-motion:reduce) {
   html {
     scroll-behavior:auto

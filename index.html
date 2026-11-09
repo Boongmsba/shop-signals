@@ -29,7 +29,22 @@
     <main id="overview" tabindex="-1">
       <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
       <section class="page-heading"><div><div class="eyebrow">THE BIG PICTURE</div><h1>Small shop. Clear signals.</h1><p>A closer look at what’s selling, and what to try next.</p></div><div class="heading-actions"><button id="export-report" class="button button-light" disabled><span aria-hidden="true">↓</span> Export report</button><button id="open-upload" class="button button-dark"><span aria-hidden="true">+</span> Upload sales</button></div></section>
-      <div class="dataset-toolbar"><div><span class="live-dot" aria-hidden="true"></span><strong id="dataset-name">Sunday Bakery · sample sales</strong><span class="data-subtitle" id="dataset-description">Loading sample data…</span></div><label class="period-control">Show <select id="period" aria-label="Sales date range"><option value="7">Last 7 days</option><option value="28" selected>Last 28 days</option><option value="56">Last 56 days</option><option value="all">All dates</option></select></label></div>
+      <div class="dataset-toolbar"><div><span class="live-dot" aria-hidden="true"></span><strong id="dataset-name">Sunday Bakery · sample sales</strong><span class="data-subtitle" id="dataset-description">Loading sample data…</span></div></div>
+      <form id="date-form" class="panel date-panel" aria-label="Choose dates and comparison">
+        <div class="date-controls">
+          <label class="date-control">Period<select id="period" aria-label="Sales date range"><option value="7">Last 7 days</option><option value="28" selected>Last 28 days</option><option value="56">Last 56 days</option><option value="all">All dates</option><option value="custom">Custom dates</option></select></label>
+          <div id="custom-range-fields" class="date-pair" hidden><label class="date-control" for="range-start">Start date<input id="range-start" type="date" min="1900-01-01" max="9999-12-31" disabled></label><label class="date-control" for="range-end">End date<input id="range-end" type="date" min="1900-01-01" max="9999-12-31" disabled></label></div>
+          <label class="date-control">Compare with<select id="comparison-mode" aria-label="Comparison period"><option value="previous">Previous period</option><option value="custom">Custom period</option><option value="none">No comparison</option></select></label>
+          <div id="custom-comparison-fields" class="date-pair" hidden><label class="date-control" for="comparison-start">Comparison start<input id="comparison-start" type="date" min="1900-01-01" max="9999-12-31" disabled></label><label class="date-control" for="comparison-end">Comparison end<input id="comparison-end" type="date" min="1900-01-01" max="9999-12-31" disabled></label></div>
+          <button id="apply-dates" class="button button-dark" type="submit" disabled>Apply dates <span aria-hidden="true">→</span></button>
+        </div>
+        <p id="available-dates" class="date-help">Dates include both the start and end day.</p>
+        <p id="date-applied" class="date-applied">Loading your date range…</p>
+        <p id="date-draft-status" class="date-draft-status" role="status" hidden></p>
+        <p id="date-error" class="upload-error" role="alert" hidden></p>
+      </form>
+      <p id="coverage-notice" class="notice" role="status" hidden></p>
+      <p id="empty-period" class="notice" role="status" hidden>No sales records fall in this period. Try another date range to see your products.</p>
       <div id="dashboard" aria-busy="true">
         <section class="metric-grid" aria-label="Sales summary">
           <article class="metric-card"><div class="metric-label">Sales revenue <span aria-hidden="true">↗</span></div><div id="revenue" class="metric-value">—</div><div id="revenue-change" class="metric-detail">Based on your selected period</div></article>
@@ -49,6 +64,11 @@
           </div>
           <p id="cost-help" class="cost-help">Add optional unit_cost values to your CSV to understand gross profit. Operating expenses are excluded.</p>
         </section>
+        <section id="period-comparison" class="panel comparison-panel" aria-labelledby="comparison-title">
+          <div class="panel-heading"><div><div class="eyebrow">PUT THE NUMBERS IN CONTEXT</div><h2 id="comparison-title">How the periods compare</h2></div><span id="comparison-length" class="count-badge">Equal-length periods</span></div>
+          <p id="comparison-note" class="comparison-note"></p>
+          <div class="scroll-table" role="region" aria-label="Period comparison; scroll horizontally for all columns" tabindex="0"><table class="comparison-table"><caption class="sr-only">Revenue, items, gross profit, and gross margin across selected periods</caption><thead><tr><th scope="col">Metric</th><th scope="col">Selected period<small id="selected-period-label"></small></th><th scope="col">Comparison period<small id="comparison-period-label"></small></th><th scope="col">Change</th></tr></thead><tbody id="comparison-table"></tbody></table></div>
+        </section>
         <div class="chart-and-note">
           <section class="panel trend-panel" aria-labelledby="trend-title"><div class="panel-heading"><div><h2 id="trend-title">The rhythm of your sales</h2><p>Daily revenue, one day at a time.</p></div><span class="chart-legend"><i></i> Revenue</span></div><div id="chart" class="chart-container"></div><div class="chart-footer"><span id="date-range">—</span><span>USD · Missing dates count as $0</span></div><details class="chart-data"><summary>View chart data</summary><div class="scroll-table"><table><caption class="sr-only">Daily sales revenue</caption><thead><tr><th scope="col">Date</th><th scope="col">Revenue</th><th scope="col">Items</th></tr></thead><tbody id="daily-table"></tbody></table></div></details></section>
           <aside class="spotlight" aria-label="Top product insight"><div class="spotlight-top"><span class="eyebrow">A SIGNAL WORTH NOTICING</span><span class="spark" aria-hidden="true">✳</span></div><div><p class="spotlight-caption">Your top product brings in</p><div id="top-share" class="spotlight-number">—<span>%</span></div><h2 id="spotlight-product">Loading your signal…</h2><p id="spotlight-detail">A useful starting point for your next small experiment.</p></div><a href="#next-steps">See your next steps <span aria-hidden="true">↗</span></a></aside>
@@ -67,5 +87,7 @@
     </main>
   </div>
   <dialog id="upload-dialog" aria-labelledby="upload-title"><div class="dialog-heading"><div><div class="eyebrow">BRING YOUR OWN NUMBERS</div><h2 id="upload-title">Let’s read your sales.</h2></div><button id="close-upload" class="close-button" aria-label="Close upload dialog">×</button></div><p>Choose a CSV export. It stays in this browser and replaces the demo until you refresh.</p><label class="file-picker" for="csv-file"><span class="upload-symbol" aria-hidden="true">↥</span><strong>Choose a sales CSV</strong><span>Up to 2 MiB · 50,000 records</span><input id="csv-file" type="file" accept=".csv,text/csv"></label><div class="format-help"><strong>Required columns</strong><code>date,product,quantity,unit_price</code><p>Dates: YYYY-MM-DD. Quantity: positive whole numbers. Price: USD with up to two decimals. Optional: category and unit_cost.</p><p class="cost-format-note">Add unit_cost for gross profit and margin. Use a nonnegative USD amount per item, with up to two decimals. Leave unknown costs blank; enter 0 only for a known zero cost. CSVs without costs still work.</p><a href="./data/sample-sales.csv" download>Download the synthetic example with costs ↗</a></div><details class="paste-option"><summary>Or paste CSV text</summary><label class="sr-only" for="csv-text">Sales CSV text</label><textarea id="csv-text" rows="5" spellcheck="false" placeholder="date,product,quantity,unit_price,unit_cost&#10;2026-10-01,Latte,12,4.50,1.60"></textarea><button id="analyze-paste" class="button button-dark" type="button">Analyze pasted CSV</button></details><p id="upload-error" class="upload-error" role="alert" hidden></p></dialog>
+  <aside id="local-open-help" class="local-open-help" role="alert" hidden><strong>This file preview can’t run the dashboard.</strong><p><a href="https://boongmsba.github.io/shop-signals/">Open the live app →</a> or follow the <a href="https://github.com/Boongmsba/shop-signals#run-locally">local setup instructions</a>.</p></aside>
+  <script>if (window.location.protocol === 'file:') document.getElementById('local-open-help').hidden = false;</script>
 </body>
 </html>

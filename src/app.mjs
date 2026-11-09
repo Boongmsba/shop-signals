@@ -10,7 +10,8 @@ let rows = [];
 let analysis;
 let source = { name: 'Sunday Bakery · sample sales', isDemo: true };
 let lastComparison = null;
-let renderedPeriod = '28';
+const defaultView = () => ({ period: '28', start: '', end: '', compare: 'previous', comparisonStart: '', comparisonEnd: '' });
+let appliedView = defaultView();
 let datasetRevision = 0;
 
 function element(tag, className, text) {
@@ -24,6 +25,98 @@ function notice(message, isError = false) {
   $('notice').textContent = message;
   $('notice').classList.toggle('error', isError);
   $('notice').hidden = !message;
+}
+
+function readView() {
+  return { period: $('period').value, start: $('range-start').value, end: $('range-end').value, compare: $('comparison-mode').value, comparisonStart: $('comparison-start').value, comparisonEnd: $('comparison-end').value };
+}
+
+function analyzeView(data, view) {
+  const selected = view.period === 'custom' ? { start: view.start, end: view.end } : view.period === 'all' ? null : Number(view.period);
+  const comparison = view.compare === 'custom' ? { start: view.comparisonStart, end: view.comparisonEnd } : view.compare;
+  return analyzeSales(data, selected, comparison);
+}
+
+function updateDateControls() {
+  const view = readView();
+  for (const [group, ids, enabled] of [
+    ['custom-range-fields', ['range-start', 'range-end'], view.period === 'custom'],
+    ['custom-comparison-fields', ['comparison-start', 'comparison-end'], view.compare === 'custom'],
+  ]) {
+    $(group).hidden = !enabled;
+    for (const id of ids) { $(id).disabled = !enabled; $(id).required = enabled; }
+  }
+  const dirty = Object.keys(appliedView).some((key) => view[key] !== appliedView[key]);
+  $('date-draft-status').textContent = 'Date changes are not applied yet. Select Apply dates to update the dashboard.';
+  $('date-draft-status').hidden = !dirty;
+}
+
+function syncViewControls(view, result) {
+  appliedView = { ...view, start: result.range.start || '', end: result.range.end || '', comparisonStart: result.comparison.start || '', comparisonEnd: result.comparison.end || '' };
+  for (const [id, key] of [['period', 'period'], ['range-start', 'start'], ['range-end', 'end'], ['comparison-mode', 'compare'], ['comparison-start', 'comparisonStart'], ['comparison-end', 'comparisonEnd']]) $(id).value = appliedView[key];
+  $('date-error').hidden = true;
+  $('apply-dates').disabled = false;
+  updateDateControls();
+}
+
+function periodLabel(start, end, days) {
+  if (!start || !end) return 'No period selected';
+  return `${start} – ${end} · ${days} day${days === 1 ? '' : 's'}`;
+}
+
+function comparisonValue(totals, field) {
+  if (field === 'revenue') return money(totals.revenue);
+  if (field === 'units') return integer.format(totals.units);
+  if (totals.records === 0) return 'No sales';
+  if (totals.cost === null) return 'Cost needed';
+  if (field === 'grossMarginPct') return totals.grossMarginPct === null ? 'N/A' : `${totals.grossMarginPct.toFixed(1)}%`;
+  return money(totals.grossProfit);
+}
+
+function renderComparison(result) {
+  const { range, comparison, totals, previous, dataRange } = result;
+  const selectedLabel = periodLabel(range.start, range.end, range.days);
+  $('date-applied').textContent = `Showing ${selectedLabel}${comparison.mode === 'none' ? ' · Comparison off' : ''}`;
+  $('available-dates').textContent = `Imported dates: ${dataRange.start} – ${dataRange.end}. Both endpoints are included. Dates without records count as zero sales.`;
+  $('coverage-notice').hidden = result.currentCoverageComplete;
+  $('coverage-notice').textContent = 'The selected period extends beyond your imported dates. Totals include only the records available, and comparison changes are unavailable.';
+  $('empty-period').hidden = totals.records !== 0;
+  $('period-comparison').hidden = comparison.mode === 'none';
+  if (comparison.mode === 'none') { $('comparison-table').replaceChildren(); return; }
+  $('selected-period-label').textContent = selectedLabel;
+  $('comparison-period-label').textContent = periodLabel(comparison.start, comparison.end, comparison.days);
+  $('comparison-length').textContent = comparison.equalLength ? `${range.days} days vs. ${comparison.days} days` : 'Different period lengths';
+  const notes = [];
+  if (!comparison.available) notes.push(comparison.reason || 'The imported dates do not fully cover both periods.');
+  if (!comparison.equalLength) notes.push(`These periods have ${range.days} and ${comparison.days} days. Values are totals, not daily averages; growth percentages are withheld.`);
+  if (!notes.length) notes.push('Changes are selected period minus comparison period. Gross margin changes use percentage points (pp).');
+  $('comparison-note').textContent = notes.join(' ');
+  const metrics = [['Revenue', 'revenue', comparison.revenue], ['Items sold', 'units', comparison.units], ['Gross profit', 'grossProfit', comparison.grossProfit], ['Gross margin', 'grossMarginPct', comparison.grossMargin]];
+  const previousCovered = comparison.start >= dataRange.start && comparison.end <= dataRange.end;
+  $('comparison-table').replaceChildren(...metrics.map(([label, field, metric]) => {
+    const tr = element('tr');
+    const heading = element('th', '', label);
+    heading.scope = 'row';
+    const currentCell = element('td', '', comparisonValue(totals, field));
+    if (!result.currentCoverageComplete) currentCell.append(element('small', 'comparison-unavailable', 'Partial data'));
+    const previousCell = element('td', '', previousCovered ? comparisonValue(previous, field) : 'Incomplete data');
+    const deltaCell = element('td', 'comparison-change');
+    const delta = field === 'grossMarginPct' ? metric.deltaPp : metric.delta;
+    if (delta === null) {
+      deltaCell.append(element('span', 'comparison-unavailable', !comparison.available ? 'Unavailable' : 'N/A'));
+      if (comparison.available) deltaCell.append(element('small', '', field === 'grossMarginPct' ? 'Both periods need a defined margin' : 'Both periods need complete costs'));
+    } else {
+      const prefix = delta > 0 ? '+' : '';
+      const value = field === 'grossMarginPct' ? `${prefix}${delta.toFixed(1)} pp` : field === 'units' ? `${prefix}${integer.format(delta)}` : `${prefix}${money(delta)}`;
+      deltaCell.append(element('strong', delta < 0 ? 'cell-negative' : '', value));
+      if (field !== 'grossMarginPct') {
+        const percentage = metric.changePct;
+        deltaCell.append(element('small', '', percentage !== null ? `${percentage > 0 ? '+' : ''}${percentage.toFixed(1)}%` : !comparison.equalLength ? 'Different period lengths' : 'No positive comparison baseline'));
+      }
+    }
+    tr.append(heading, currentCell, previousCell, deltaCell);
+    return tr;
+  }));
 }
 
 function renderChart(series) {
@@ -172,23 +265,23 @@ function updateOwnPrice() {
   lastComparison = null;
 }
 
-function render() {
-  const period = $('period').value;
-  analysis = analyzeSales(rows, period === 'all' ? null : Number(period));
+function render(nextAnalysis) {
+  analysis = nextAnalysis;
   const { totals, products, range } = analysis;
   $('revenue').textContent = money(totals.revenue);
   $('units').textContent = integer.format(totals.units);
   $('record-count').textContent = `Across ${integer.format(totals.records)} sales records`;
   $('average-price').textContent = money(totals.avgUnitPrice);
   renderCosts(totals);
+  renderComparison(analysis);
   const change = $('revenue-change');
   change.classList.remove('positive', 'negative');
   if (analysis.comparisonAvailable && analysis.changePct !== null) {
     const percent = analysis.changePct;
-    change.textContent = `${percent >= 0 ? '↑' : '↓'} ${Math.abs(percent).toFixed(1)}% vs. previous ${range.days} days`;
+    change.textContent = `${percent >= 0 ? '↑' : '↓'} ${Math.abs(percent).toFixed(1)}% vs. comparison period`;
     change.classList.add(percent >= 0 ? 'positive' : 'negative');
   } else {
-    change.textContent = analysis.comparisonAvailable ? 'Previous period had $0 in revenue' : 'No complete previous period available';
+    change.textContent = analysis.comparison.mode === 'none' ? 'Comparison turned off' : !analysis.comparisonAvailable ? 'Full-period comparison unavailable' : !analysis.comparison.equalLength ? 'Growth % withheld for unequal periods' : 'Comparison period had $0 in revenue';
   }
   const best = products[0];
   $('bestseller').textContent = best?.product || 'No sales';
@@ -218,22 +311,22 @@ function render() {
   }));
   $('export-report').disabled = false;
   $('dashboard').setAttribute('aria-busy', 'false');
-  renderedPeriod = period;
 }
 
-function ingest(text, name, isDemo = false, period = $('period').value) {
+function ingest(text, name, isDemo = false) {
   const parsed = parseSalesCSV(text);
   // Validate analysis before replacing the current dataset, preserving it on errors.
-  analyzeSales(parsed.rows, period === 'all' ? null : Number(period));
+  const nextView = defaultView();
+  const nextAnalysis = analyzeView(parsed.rows, nextView);
   datasetRevision += 1;
   rows = parsed.rows;
   source = { name, isDemo: isDemo || text.includes('SYNTHETIC DEMO') };
-  $('period').value = period;
-  render();
+  render(nextAnalysis);
+  syncViewControls(nextView, nextAnalysis);
   return parsed.warnings;
 }
 
-async function loadDemo(resetPeriod = false) {
+async function loadDemo() {
   const requestedRevision = ++datasetRevision;
   try {
     const response = await fetch('./data/sample-sales.csv');
@@ -241,7 +334,7 @@ async function loadDemo(resetPeriod = false) {
     const text = await response.text();
     // A successful import or newer demo request takes priority over this fetch.
     if (requestedRevision !== datasetRevision) return false;
-    ingest(text, 'Sunday Bakery · sample sales', true, resetPeriod ? '28' : $('period').value);
+    ingest(text, 'Sunday Bakery · sample sales', true);
     return true;
   } catch (error) {
     if (requestedRevision !== datasetRevision) return false;
@@ -256,7 +349,7 @@ function importCSV(text, name) {
     $('upload-dialog').close();
     $('csv-text').value = '';
     $('csv-file').value = '';
-    notice(`${integer.format(rows.length)} sales records loaded. Your data stays in this browser.${warnings.length ? ` ${warnings.join(' ')}` : ''}`);
+    notice(`${integer.format(rows.length)} sales records loaded. Dates reset to the last 28 days and previous-period comparison. Your data stays in this browser.${warnings.length ? ` ${warnings.join(' ')}` : ''}`);
   } catch (error) {
     $('upload-error').textContent = error.message;
     $('upload-error').hidden = false;
@@ -291,19 +384,27 @@ $('csv-file').addEventListener('change', async (event) => {
   }
 });
 $('analyze-paste').addEventListener('click', () => importCSV($('csv-text').value, 'Pasted sales'));
-$('period').addEventListener('change', () => {
+$('date-form').addEventListener('submit', (event) => {
+  event.preventDefault();
   if (!rows.length) return;
-  try { render(); notice(''); }
+  try {
+    const nextView = readView();
+    const nextAnalysis = analyzeView(rows, nextView);
+    render(nextAnalysis);
+    syncViewControls(nextView, nextAnalysis);
+    notice('');
+  }
   catch (error) {
-    $('period').value = renderedPeriod;
-    notice(`${error.message} Your previous view has been kept.`, true);
+    $('date-error').textContent = `${error.message} The dashboard and exports still use your last applied dates.`;
+    $('date-error').hidden = false;
   }
 });
+for (const id of ['period', 'range-start', 'range-end', 'comparison-mode', 'comparison-start', 'comparison-end']) $(id).addEventListener('input', () => { updateDateControls(); $('date-error').hidden = true; });
 $('compare-product').addEventListener('change', updateOwnPrice);
 $('product-sort').addEventListener('change', () => { if (analysis) renderProducts(analysis.products, false); });
 $('reset-demo').addEventListener('click', async () => {
   try {
-    if (await loadDemo(true)) notice('The synthetic bakery demo has been restored.');
+    if (await loadDemo()) notice('The synthetic bakery demo has been restored with the last 28 days and previous-period comparison.');
   } catch (error) { notice(error.message, true); }
 });
 $('price-form').addEventListener('submit', (event) => {
@@ -327,7 +428,7 @@ $('price-form').addEventListener('submit', (event) => {
 });
 $('export-report').addEventListener('click', () => {
   if (!analysis) return;
-  const report = { project: 'Shop Signals', schemaVersion: 2, generatedAt: new Date().toISOString(), currency: 'USD', source, assumptions: ['Dates without records are treated as zero sales.', 'Revenue is quantity × unit price.', 'Product cost is quantity × unit_cost; gross profit is revenue minus product cost.', 'Aggregate cost and gross profit are null unless every record in that aggregate has a known cost.', 'Gross margin is gross profit divided by revenue × 100; it is null for zero revenue or missing costs.', 'Gross profit excludes operating expenses. Suggestions are rules, not forecasts.'], analysis, priceComparison: lastComparison };
+  const report = { project: 'Shop Signals', schemaVersion: 3, generatedAt: new Date().toISOString(), currency: 'USD', source, view: { ...appliedView }, assumptions: ['Dates include both endpoints and use UTC calendar days. Dates without records are treated as zero sales.', 'Comparison changes require both full periods within the imported date span.', 'Unequal periods show total differences, but growth percentages are withheld.', 'Gross-margin changes are percentage points. Gross-profit growth percentages require a positive comparison baseline.', 'Revenue is quantity × unit price.', 'Product cost is quantity × unit_cost; gross profit is revenue minus product cost.', 'Aggregate cost and gross profit are null unless every record in that aggregate has a known cost.', 'Gross margin is gross profit divided by revenue × 100; it is null for zero revenue or missing costs.', 'Gross profit excludes operating expenses. Suggestions are rules, not forecasts.'], analysis, priceComparison: lastComparison };
   const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const link = element('a');

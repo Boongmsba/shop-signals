@@ -400,3 +400,239 @@ test('extreme amounts must preserve exact cents in serialized dollar values as w
   // Both input amounts serialize exactly, but their negative difference does not.
   assert.throws(() => analyzeSales([row('2026-10-01', 1, 0.03, 'Bread', 90_000_000_000_000.12)]), /Total gross profit is too large to represent exactly in cents/);
 });
+
+const comparisonFixture = () => [
+  row('2026-11-04', 1, 10, 'Bread', 4),
+  row('2026-11-05', 1, 10, 'Bread', 5),
+  row('2026-11-06', 1, 10, 'Bread', 5),
+  row('2026-11-07', 1, 20, 'Bread', 8),
+  row('2026-11-08', 1, 20, 'Bread', 8),
+  row('2026-11-09', 1, 20, 'Bread', 9),
+];
+const customCurrent = { start: '2026-11-07', end: '2026-11-09' };
+const customPrevious = { start: '2026-11-04', end: '2026-11-06' };
+
+test('explicit equal-length ranges compare revenue, units, gross profit, and margin with known answers', () => {
+  const result = analyzeSales(comparisonFixture(), customCurrent, customPrevious);
+  assert.deepEqual(result.range, { start: '2026-11-07', end: '2026-11-09', days: 3, previousStart: '2026-11-04', previousEnd: '2026-11-06' });
+  assert.deepEqual(result.dataRange, { start: '2026-11-04', end: '2026-11-09' });
+  assert.equal(result.currentCoverageComplete, true);
+  assert.equal(result.totals.revenue, 60);
+  assert.equal(result.totals.cost, 25);
+  assert.equal(result.totals.grossProfit, 35);
+  assert.equal(result.previous.revenue, 30);
+  assert.equal(result.previous.cost, 14);
+  assert.equal(result.previous.grossProfit, 16);
+  assert.equal(result.comparisonAvailable, true);
+  assert.equal(result.changePct, 100);
+  assert.deepEqual(result.comparison, {
+    mode: 'custom', start: '2026-11-04', end: '2026-11-06', days: 3, equalLength: true, available: true, reason: null,
+    revenue: { delta: 30, changePct: 100 },
+    units: { delta: 0, changePct: 0 },
+    grossProfit: { delta: 19, changePct: 118.75 },
+    grossMargin: { deltaPp: 5 },
+  });
+  const automatic = analyzeSales(comparisonFixture(), customCurrent);
+  assert.deepEqual(automatic.range, result.range);
+  assert.deepEqual(automatic.previous, result.previous);
+  assert.deepEqual(automatic.comparison, { ...result.comparison, mode: 'previous' });
+});
+
+test('single-day, leap-day, DST, and cross-year ranges use inclusive UTC calendar dates', () => {
+  const cases = [
+    { start: '2026-11-09', end: '2026-11-09', days: 1, previousStart: '2026-11-08', previousEnd: '2026-11-08' },
+    { start: '2024-02-28', end: '2024-03-01', days: 3, previousStart: '2024-02-25', previousEnd: '2024-02-27' },
+    { start: '2026-10-31', end: '2026-11-02', days: 3, previousStart: '2026-10-28', previousEnd: '2026-10-30' },
+    { start: '2026-12-31', end: '2027-01-02', days: 3, previousStart: '2026-12-28', previousEnd: '2026-12-30' },
+  ];
+  for (const expected of cases) {
+    const result = analyzeSales([row(expected.previousStart), row(expected.end)], { start: expected.start, end: expected.end });
+    assert.deepEqual(result.range, expected);
+    assert.equal(result.series.length, expected.days);
+    assert.equal(result.series[0].date, expected.start);
+    assert.equal(result.series.at(-1).date, expected.end);
+    assert.equal(result.comparison.available, true);
+  }
+  const earliest = analyzeSales([row('1900-01-01')], { start: '1900-01-01', end: '1900-01-01' });
+  assert.equal(earliest.range.previousStart, '1899-12-31');
+  assert.equal(earliest.range.previousEnd, '1899-12-31');
+  assert.equal(earliest.comparison.available, false);
+});
+
+test('comparison off clears previous dates and totals without changing selected analytics', () => {
+  const result = analyzeSales(comparisonFixture(), customCurrent, 'none');
+  assert.equal(result.totals.revenue, 60);
+  assert.equal(result.currentCoverageComplete, true);
+  assert.equal(result.range.previousStart, null);
+  assert.equal(result.range.previousEnd, null);
+  assert.deepEqual(result.previous, analyzeSales([]).totals);
+  assert.equal(result.comparisonAvailable, false);
+  assert.equal(result.changePct, null);
+  assert.deepEqual(result.comparison, {
+    mode: 'none', start: null, end: null, days: 0, equalLength: false, available: false, reason: 'Comparison is turned off.',
+    revenue: { delta: null, changePct: null }, units: { delta: null, changePct: null },
+    grossProfit: { delta: null, changePct: null }, grossMargin: { deltaPp: null },
+  });
+});
+
+test('unequal custom ranges keep absolute deltas and margin points but suppress all percentage changes', () => {
+  const result = analyzeSales(comparisonFixture(), customCurrent, { start: '2026-11-04', end: '2026-11-05' });
+  assert.equal(result.comparison.available, true);
+  assert.equal(result.comparison.equalLength, false);
+  assert.equal(result.comparison.days, 2);
+  assert.equal(result.comparison.reason, null);
+  assert.deepEqual(result.comparison.revenue, { delta: 40, changePct: null });
+  assert.deepEqual(result.comparison.units, { delta: 1, changePct: null });
+  assert.deepEqual(result.comparison.grossProfit, { delta: 24, changePct: null });
+  assert.ok(Math.abs(result.comparison.grossMargin.deltaPp - (10 / 3)) < 1e-10);
+  assert.equal(result.changePct, null);
+});
+
+test('custom comparison can follow the selection, but cannot overlap even at one shared endpoint', () => {
+  const after = analyzeSales(comparisonFixture(), customPrevious, customCurrent);
+  assert.equal(after.comparison.available, true);
+  assert.equal(after.comparison.revenue.delta, -30);
+  assert.equal(after.comparison.revenue.changePct, -50);
+  for (const comparison of [customCurrent, { start: '2026-11-06', end: '2026-11-07' }, { start: '2026-11-09', end: '2026-11-10' }, { start: '2026-11-01', end: '2026-11-20' }]) {
+    assert.throws(() => analyzeSales(comparisonFixture(), customCurrent, comparison), /overlaps the selected range/);
+  }
+});
+
+test('coverage requires both complete range bounds and never clamps requested dates to imported sales', () => {
+  const outsideCurrent = analyzeSales(comparisonFixture(), { start: '2026-11-08', end: '2026-11-11' }, customPrevious);
+  assert.equal(outsideCurrent.range.end, '2026-11-11');
+  assert.equal(outsideCurrent.range.days, 4);
+  assert.equal(outsideCurrent.totals.revenue, 40);
+  assert.equal(outsideCurrent.totals.grossProfit, 23); // Cost coverage is independent of date coverage.
+  assert.equal(outsideCurrent.currentCoverageComplete, false);
+  assert.equal(outsideCurrent.comparison.available, false);
+  assert.match(outsideCurrent.comparison.reason, /full selected range/);
+  assert.deepEqual(outsideCurrent.series.slice(-2), [
+    { date: '2026-11-10', revenue: 0, quantity: 0 },
+    { date: '2026-11-11', revenue: 0, quantity: 0 },
+  ]);
+  assert.match(outsideCurrent.recommendations[2].detail, /cover 2 calendar days within this 4-day view/);
+  const outsideComparison = analyzeSales(comparisonFixture(), customCurrent, { start: '2026-11-01', end: '2026-11-03' });
+  assert.equal(outsideComparison.currentCoverageComplete, true);
+  assert.equal(outsideComparison.comparison.available, false);
+  assert.match(outsideComparison.comparison.reason, /full comparison range/);
+  const bothOutside = analyzeSales(comparisonFixture(), { start: '2026-11-10', end: '2026-11-12' }, { start: '2026-11-01', end: '2026-11-03' });
+  assert.equal(bothOutside.products.length, 0);
+  assert.equal(bothOutside.totals.cost, null);
+  assert.equal(bothOutside.totals.grossProfit, null);
+  assert.equal(bothOutside.series.length, 3);
+  assert.equal(bothOutside.recommendations[0].title, 'Add your first sales records');
+  assert.match(bothOutside.comparison.reason, /full selected and comparison ranges/);
+  for (const result of [outsideCurrent, outsideComparison, bothOutside]) {
+    assert.equal(result.comparisonAvailable, false);
+    assert.equal(result.changePct, null);
+    assert.deepEqual(result.comparison.revenue, { delta: null, changePct: null });
+    assert.deepEqual(result.comparison.units, { delta: null, changePct: null });
+    assert.deepEqual(result.comparison.grossProfit, { delta: null, changePct: null });
+    assert.deepEqual(result.comparison.grossMargin, { deltaPp: null });
+  }
+  assert.equal(analyzeSales([row('2026-11-09')], 28).currentCoverageComplete, false);
+});
+
+test('a covered zero-sales interval has zero revenue and units but does not invent known gross profit', () => {
+  const result = analyzeSales([
+    row('2026-11-04', 1, 10, 'Bread', 4), row('2026-11-09', 1, 20, 'Bread', 9),
+  ], { start: '2026-11-07', end: '2026-11-08' }, { start: '2026-11-04', end: '2026-11-05' });
+  assert.equal(result.currentCoverageComplete, true);
+  assert.equal(result.comparison.available, true);
+  assert.equal(result.totals.records, 0);
+  assert.deepEqual(result.comparison.revenue, { delta: -10, changePct: -100 });
+  assert.deepEqual(result.comparison.units, { delta: -1, changePct: -100 });
+  assert.equal(result.totals.grossProfit, null);
+  assert.deepEqual(result.comparison.grossProfit, { delta: null, changePct: null });
+  assert.deepEqual(result.comparison.grossMargin, { deltaPp: null });
+});
+
+test('empty data preserves the old empty range and explicit requested ranges', () => {
+  const empty = analyzeSales([]);
+  assert.deepEqual(empty.range, { start: null, end: null, days: 0, previousStart: null, previousEnd: null });
+  assert.deepEqual(empty.dataRange, { start: null, end: null });
+  assert.equal(empty.currentCoverageComplete, false);
+  assert.equal(empty.comparison.available, false);
+  assert.match(empty.comparison.reason, /No imported sales dates/);
+  const explicit = analyzeSales([], customCurrent);
+  assert.deepEqual(explicit.range, { start: '2026-11-07', end: '2026-11-09', days: 3, previousStart: '2026-11-04', previousEnd: '2026-11-06' });
+  assert.equal(explicit.series.length, 3);
+  assert.ok(explicit.series.every((day) => day.revenue === 0 && day.quantity === 0));
+  assert.equal(explicit.totals.grossProfit, null);
+  assert.equal(explicit.previous.grossProfit, null);
+  const off = analyzeSales([], customCurrent, 'none');
+  assert.equal(off.range.start, customCurrent.start);
+  assert.equal(off.range.previousStart, null);
+  assert.equal(off.comparison.reason, 'Comparison is turned off.');
+});
+
+test('comparison rejects incomplete, reversed, invalid, excessively long, and untyped ranges', () => {
+  const invalid = [
+    {}, { start: '2026-11-01' }, { end: '2026-11-01' },
+    { start: null, end: '2026-11-01' }, { start: new Date('2026-11-01'), end: '2026-11-01' },
+    { start: '2026-11-02', end: '2026-11-01' },
+    { start: '2026-02-29', end: '2026-03-01' },
+    { start: '1899-12-31', end: '1900-01-01' },
+    { start: '2026-1-01', end: '2026-01-02' },
+    { start: '1900-01-01', end: '2100-01-01' }, [],
+  ];
+  for (const range of invalid) {
+    assert.throws(() => analyzeSales(comparisonFixture(), range), /Selected range/);
+    assert.throws(() => analyzeSales(comparisonFixture(), customCurrent, range), /Comparison range/);
+  }
+  for (const selection of ['2026-11-01', '7', false, 0, 14, NaN]) {
+    assert.throws(() => analyzeSales(comparisonFixture(), selection), /Choose all dates/);
+  }
+  for (const compare of [null, 'off', false, 7]) {
+    assert.throws(() => analyzeSales(comparisonFixture(), customCurrent, compare), /Comparison range/);
+  }
+});
+
+test('zero and negative gross-profit baselines keep absolute differences but suppress percentage changes', () => {
+  for (const priorCost of [2, 3]) {
+    const result = analyzeSales([
+      row('2026-11-08', 1, 2, 'Bread', priorCost), row('2026-11-09', 1, 3, 'Bread', 1),
+    ], { start: '2026-11-09', end: '2026-11-09' });
+    assert.deepEqual(result.comparison.grossProfit, { delta: priorCost, changePct: null });
+    assert.deepEqual(result.comparison.revenue, { delta: 1, changePct: 50 });
+    assert.ok(result.comparison.grossMargin.deltaPp > 0);
+  }
+  const loss = analyzeSales([
+    row('2026-11-08', 1, 2, 'Bread', 1), row('2026-11-09', 1, 1, 'Bread', 2),
+  ], { start: '2026-11-09', end: '2026-11-09' });
+  assert.deepEqual(loss.comparison.grossProfit, { delta: -2, changePct: -200 });
+  const zeroRevenue = analyzeSales([
+    row('2026-11-08', 1, 0, 'Bread', 1), row('2026-11-09', 1, 3, 'Bread', 1),
+  ], { start: '2026-11-09', end: '2026-11-09' });
+  assert.deepEqual(zeroRevenue.comparison.revenue, { delta: 3, changePct: null });
+  assert.deepEqual(zeroRevenue.comparison.grossProfit, { delta: 3, changePct: null });
+  assert.equal(zeroRevenue.comparison.grossMargin.deltaPp, null);
+});
+
+test('missing costs in either range suppress only gross-profit and margin comparisons', () => {
+  for (const costs of [[null, 1], [1, null]]) {
+    const result = analyzeSales([
+      row('2026-11-08', 1, 1, 'Bread', costs[0]), row('2026-11-09', 1, 2, 'Bread', costs[1]),
+    ], { start: '2026-11-09', end: '2026-11-09' });
+    assert.equal(result.comparison.available, true);
+    assert.equal(result.comparison.reason, null);
+    assert.deepEqual(result.comparison.revenue, { delta: 1, changePct: 100 });
+    assert.deepEqual(result.comparison.units, { delta: 0, changePct: 0 });
+    assert.deepEqual(result.comparison.grossProfit, { delta: null, changePct: null });
+    assert.deepEqual(result.comparison.grossMargin, { deltaPp: null });
+  }
+});
+
+test('comparison currency deltas use checked exact cents and reject unsafe subtraction', () => {
+  const selected = { start: '2026-11-09', end: '2026-11-09' };
+  const ordinary = analyzeSales([row('2026-11-08', 1, 0.1), row('2026-11-09', 1, 0.3)], selected);
+  assert.equal(ordinary.comparison.revenue.delta, 0.2);
+  assert.throws(() => analyzeSales([
+    row('2026-11-08', 1, 0.03), row('2026-11-09', 1, 90_000_000_000_000.12),
+  ], selected), /Revenue difference is too large to represent exactly in cents/);
+  assert.throws(() => analyzeSales([
+    row('2026-11-08', 1, 0, 'Bread', 90_000_000_000_000),
+    row('2026-11-09', 1, 90_000_000_000_000, 'Bread', 0),
+  ], selected), /Gross profit difference is too large/);
+});

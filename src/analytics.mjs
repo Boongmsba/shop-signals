@@ -267,40 +267,97 @@ function recommend({ products, totals, series, range }, coverageDays = 0) {
   return output;
 }
 
-/**
- * null selects the inclusive min-to-max date span. 7/28/56 select that many UTC
- * calendar days ending on the latest observed date, even if the dataset is short.
- * Missing dates are zero-filled; this assumes the export is complete. The prior
- * window has equal length. Its percent comparison is available only when data
- * reaches its first day and prior revenue is positive. Weekday experiments require
- * at least 14 calendar days of actual imported date coverage within the view,
- * measured from max(earliest imported date, window start) to the latest date.
- * Cost and gross profit are reported only for nonempty aggregates whose every
- * record has a known unit cost. Gross margin is a percentage of revenue, or null
- * when revenue is zero or costs are incomplete. This is not net profit.
- * No records imply no range.
- */
-export function analyzeSales(rows, days = null) {
-  if (days !== null && ![7, 28, 56].includes(days)) fail('Choose all dates (null), 7, 28, or 56 days.');
-  const data = validateRows(rows);
-  if (!data.length) {
-    const result = { range: { start: null, end: null, days: 0, previousStart: null, previousEnd: null }, totals: EMPTY_TOTALS(), previous: EMPTY_TOTALS(), comparisonAvailable: false, changePct: null, products: [], series: [] };
-    return { ...result, recommendations: recommend(result) };
+function validateRange(value, context) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    fail(`${context}: provide both start and end dates in YYYY-MM-DD format.`);
   }
+  const start = dateNumber(value.start, `${context} start`);
+  const end = dateNumber(value.end, `${context} end`);
+  if (end < start) fail(`${context}: end must be on or after start.`);
+  const days = Math.round((end - start) / DAY_MS) + 1;
+  if (days > 36_600) fail(`${context} exceeds 36,600 days (about 100 years). Choose a shorter range.`);
+  return { start, end, days };
+}
+
+function currencyDelta(current, previous, context) {
+  const cents = checkedAdd(Math.round(current * 100), -Math.round(previous * 100), context);
+  return centsToDollars(cents, context);
+}
+
+function compareTotals(totals, previous, selected, compared, mode, currentCovered, comparedCovered, hasData) {
+  const available = mode !== 'none' && currentCovered && comparedCovered;
+  const equalLength = Boolean(selected && compared && selected.days === compared.days);
+  let reason = null;
+  if (mode === 'none') reason = 'Comparison is turned off.';
+  else if (!hasData) reason = 'No imported sales dates are available to establish coverage.';
+  else if (!currentCovered && !comparedCovered) reason = 'Imported dates do not cover the full selected and comparison ranges.';
+  else if (!currentCovered) reason = 'Imported dates do not cover the full selected range.';
+  else if (!comparedCovered) reason = 'Imported dates do not cover the full comparison range.';
+  function metric(current, prior, context, currency = true) {
+    if (!available || current === null || prior === null) return { delta: null, changePct: null };
+    return {
+      delta: currency ? currencyDelta(current, prior, context) : checkedAdd(current, -prior, context),
+      changePct: equalLength && prior > 0 ? ((current - prior) / prior) * 100 : null,
+    };
+  }
+  return {
+    mode,
+    start: compared ? isoDate(compared.start) : null,
+    end: compared ? isoDate(compared.end) : null,
+    days: compared?.days || 0,
+    equalLength,
+    available,
+    reason,
+    revenue: metric(totals.revenue, previous.revenue, 'Revenue difference'),
+    units: metric(totals.units, previous.units, 'Unit difference', false),
+    grossProfit: metric(totals.grossProfit, previous.grossProfit, 'Gross profit difference'),
+    grossMargin: { deltaPp: available && totals.grossMarginPct !== null && previous.grossMarginPct !== null ? totals.grossMarginPct - previous.grossMarginPct : null },
+  };
+}
+
+/**
+ * selection is null (all imported dates), 7/28/56 days ending on the latest date,
+ * or an explicit inclusive UTC {start, end}. Explicit ranges are never clamped.
+ * compare is 'previous' (the immediately preceding equal-length interval),
+ * 'none', or a non-overlapping {start, end}; custom lengths may differ.
+ * Both whole ranges must fall within imported min/max dates for comparison
+ * deltas. Percent changes also require equal lengths and a positive baseline.
+ * Missing dates are zero-filled, assuming the export is complete. Weekday
+ * experiments require 14 calendar days in the selected/imported intersection.
+ * Cost and gross profit require known costs on every record in a nonempty
+ * aggregate. Gross margin is null for zero revenue or incomplete costs.
+ * Empty old calls retain an empty range; explicit empty ranges retain dates.
+ */
+export function analyzeSales(rows, selection = null, compare = 'previous') {
+  const explicitSelection = selection !== null && typeof selection === 'object';
+  if (!explicitSelection && selection !== null && ![7, 28, 56].includes(selection)) {
+    fail('Choose all dates (null), 7, 28, or 56 days, or provide start and end dates.');
+  }
+  let selected = explicitSelection ? validateRange(selection, 'Selected range') : null;
+  const mode = compare === 'previous' || compare === 'none' ? compare : 'custom';
+  let compared = mode === 'custom' ? validateRange(compare, 'Comparison range') : null;
+  const data = validateRows(rows);
   let min = Infinity;
   let max = -Infinity;
   for (const row of data) { min = Math.min(min, row.time); max = Math.max(max, row.time); }
-  const length = days ?? Math.round((max - min) / DAY_MS) + 1;
-  // Avoid huge browser allocations from accidentally mistyped dates.
-  if (length > 36_600) fail('The date span exceeds 100 years. Check your date values or choose a shorter date window.');
-  const start = max - (length - 1) * DAY_MS;
-  const previousStart = start - length * DAY_MS;
-  const previousEnd = start - DAY_MS;
-  const current = data.filter((row) => row.time >= start && row.time <= max);
-  const prior = data.filter((row) => row.time >= previousStart && row.time <= previousEnd);
-  const totals = summarize(current);
-  const previous = summarize(prior);
-  const comparisonAvailable = min <= previousStart;
+  if (!selected && data.length) {
+    const days = selection ?? Math.round((max - min) / DAY_MS) + 1;
+    if (days > 36_600) fail('The date span exceeds 100 years. Check your date values or choose a shorter date window.');
+    selected = { start: max - (days - 1) * DAY_MS, end: max, days };
+  }
+  if (mode === 'previous' && selected) {
+    compared = { start: selected.start - selected.days * DAY_MS, end: selected.start - DAY_MS, days: selected.days };
+  }
+  if (mode === 'custom' && selected && compared.start <= selected.end && compared.end >= selected.start) {
+    fail('Comparison range overlaps the selected range. Choose dates entirely before or after the selected range.');
+  }
+  const current = selected ? data.filter((row) => row.time >= selected.start && row.time <= selected.end) : [];
+  const prior = compared ? data.filter((row) => row.time >= compared.start && row.time <= compared.end) : [];
+  const totals = current.length ? summarize(current) : EMPTY_TOTALS();
+  const previous = prior.length ? summarize(prior) : EMPTY_TOTALS();
+  const currentCoverageComplete = Boolean(data.length && selected && min <= selected.start && max >= selected.end);
+  const comparedCovered = Boolean(data.length && compared && min <= compared.start && max >= compared.end);
+  const comparison = compareTotals(totals, previous, selected, compared, mode, currentCoverageComplete, comparedCovered, data.length > 0);
   const productMap = new Map();
   const dayMap = new Map();
   for (const row of current) {
@@ -333,18 +390,27 @@ export function analyzeSales(rows, days = null) {
       ...marginFields(product.cents, product.records, product.costCents, product.costedRecords, product.costedUnits, 'Product'),
     };
   });
-  const series = Array.from({ length }, (_, index) => {
-    const date = isoDate(start + index * DAY_MS);
+  const series = Array.from({ length: selected?.days || 0 }, (_, index) => {
+    const date = isoDate(selected.start + index * DAY_MS);
     const daily = dayMap.get(date);
     return { date, revenue: daily ? centsToDollars(daily.cents, 'Daily revenue') : 0, quantity: daily?.quantity || 0 };
   });
   const result = {
-    range: { start: isoDate(start), end: isoDate(max), days: length, previousStart: isoDate(previousStart), previousEnd: isoDate(previousEnd) },
-    totals, previous, comparisonAvailable,
-    changePct: comparisonAvailable && previous.revenue > 0 ? ((totals.revenue - previous.revenue) / previous.revenue) * 100 : null,
-    products, series,
+    range: {
+      start: selected ? isoDate(selected.start) : null,
+      end: selected ? isoDate(selected.end) : null,
+      days: selected?.days || 0,
+      previousStart: compared ? isoDate(compared.start) : null,
+      previousEnd: compared ? isoDate(compared.end) : null,
+    },
+    totals, previous,
+    comparisonAvailable: comparison.available,
+    changePct: comparison.revenue.changePct,
+    products, series, comparison,
+    dataRange: { start: data.length ? isoDate(min) : null, end: data.length ? isoDate(max) : null },
+    currentCoverageComplete,
   };
-  const coverageDays = Math.round((max - Math.max(min, start)) / DAY_MS) + 1;
+  const coverageDays = data.length && selected ? Math.max(0, Math.round((Math.min(max, selected.end) - Math.max(min, selected.start)) / DAY_MS) + 1) : 0;
   return { ...result, recommendations: recommend(result, coverageDays) };
 }
 

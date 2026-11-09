@@ -1,6 +1,6 @@
 {
   "name": "shop-signals",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "private": true,
   "description": "A browser-based sales dashboard for small shops, with CSV analysis and transparent recommendations.",
   "type": "module",
